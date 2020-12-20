@@ -13,20 +13,12 @@
 
 #include "evaluatables.h"
 
+#include "utils/logger.h"
+
 #include <fdd.h>
 
 class SearchEngine {
 public:
-    enum FinalRewardCalculationMethod {
-        NOOP,
-        FIRST_APPLICABLE,
-        BEST_OF_CANDIDATE_SET
-    };
-
-    /*****************************************************************
-                           Search engine creation
-    *****************************************************************/
-
     virtual ~SearchEngine() {}
 
     // Create a SearchEngine
@@ -51,14 +43,23 @@ public:
 
     virtual void setUseRewardLockDetection(bool _useRewardLockDetection) {
         useRewardLockDetection = _useRewardLockDetection;
+        if (useRewardLockDetection) {
+            goalTestActionIndex = 0;
+        } else {
+            goalTestActionIndex = -1;
+        }
     }
 
     virtual void setCacheRewardLocks(bool _cacheRewardLocks) {
         cacheRewardLocks = _cacheRewardLocks;
     }
 
-    bool usesBDDs() const {
+    virtual bool usesBDDs() const {
         return useRewardLockDetection && cacheRewardLocks;
+    }
+
+    void prependName(std::string _prefix) {
+        name = _prefix + name;
     }
 
 protected:
@@ -74,8 +75,16 @@ protected:
                          Main search functions
     *****************************************************************/
 public:
-    // This is called initially to learn parameter values from a training set
-    virtual void learn() {}
+    // Notify the search engine that the session starts
+    virtual void initSession() {}
+
+    // Notify the search engine that a new round starts or ends
+    virtual void initRound() {}
+    virtual void finishRound() {}
+
+    // Notify the search engine that a new step starts or ends
+    virtual void initStep(State const& /*current*/) {}
+    virtual void finishStep() {}
 
     // Start the search engine to calculate best actions
     virtual void estimateBestActions(State const& _rootState,
@@ -124,29 +133,10 @@ protected:
     // As we are currently assuming that the reward is independent of the
     // successor state the (optimal) last reward can be calculated by applying
     // all applicable actions and returning the highest reward
-    void calcOptimalFinalReward(State const& current, double& reward) const {
-        switch (finalRewardCalculationMethod) {
-        case NOOP:
-            calcReward(current, 0, reward);
-            break;
-        case FIRST_APPLICABLE:
-            calcOptimalFinalRewardWithFirstApplicableAction(current, reward);
-            break;
-        case BEST_OF_CANDIDATE_SET:
-            calcOptimalFinalRewardAsBestOfCandidateSet(current, reward);
-            break;
-        }
-    }
+    void calcOptimalFinalReward(State const& current, double& reward) const;
 
     // Return the index of the optimal last action
     int getOptimalFinalActionIndex(State const& current) const;
-
-private:
-    // Methods to calculate the final reward
-    void calcOptimalFinalRewardWithFirstApplicableAction(State const& current,
-                                                         double& reward) const;
-    void calcOptimalFinalRewardAsBestOfCandidateSet(State const& current,
-                                                    double& reward) const;
 
     /*****************************************************************
                  Calculation of applicable actions
@@ -242,7 +232,6 @@ public:
     // current state. Since the set of actions that could maximize the final
     // reward can be a subset of all actions, we distinguish between several
     // different methods to speed up this calculation.
-    static FinalRewardCalculationMethod finalRewardCalculationMethod;
     static std::vector<int> candidatesForOptimalFinalAction;
 
     // Is true if applicable actions should be cached
@@ -267,7 +256,7 @@ public:
         ActionHashMap;
 
 protected:
-    // Used for debug output only
+    // Name, used for output only
     std::string name;
 
     // Parameter
@@ -282,12 +271,10 @@ protected:
     *****************************************************************/
 
 public:
-    // Reset statistic variables
-    virtual void resetStats() {}
-
     // Print
-    virtual void printStats(std::ostream& out, bool const& printRoundStats,
-                            std::string indent = "") const;
+    virtual void printConfig(std::string indent) const;
+    virtual void printRoundStatistics(std::string indent) const = 0;
+    virtual void printStepStatistics(std::string indent) const = 0;
 
     static void printDeadEndBDD() {
         bdd_printdot(cachedDeadEnds);
@@ -298,15 +285,12 @@ public:
     }
 
     // Print task
-    static void printTask(std::ostream& out);
-    static void printEvaluatableInDetail(std::ostream& out, Evaluatable* eval);
-    static void printDeterministicCPFInDetail(std::ostream& out,
-                                              int const& index);
-    static void printProbabilisticCPFInDetail(std::ostream& out,
-                                              int const& index);
-    static void printRewardCPFInDetail(std::ostream& out);
-    static void printActionPreconditionInDetail(std::ostream& out,
-                                                int const& index);
+    static void printTask();
+    static void printEvaluatableInDetail(Evaluatable* eval);
+    static void printDeterministicCPFInDetail(int index);
+    static void printProbabilisticCPFInDetail(int index);
+    static void printRewardCPFInDetail();
+    static void printActionPreconditionInDetail(int index);
 };
 
 /*****************************************************************
@@ -335,7 +319,7 @@ public:
     // it is not. Otherwise, the action with index i is unreasonable as the
     // action with index res[i] leads to the same distribution over successor
     // states (this is only checked if pruneUnreasonableActions is true).
-    std::vector<int> getApplicableActions(State const& state) const {
+    std::vector<int> getApplicableActions(State const& state) const override {
         std::vector<int> res(numberOfActions, 0);
 
         ActionHashMap::iterator it = applicableActionsCache.find(state);
@@ -436,6 +420,11 @@ protected:
     // maximal reward).
     bool isARewardLock(State const& current) const;
 
+    void printStateValueCacheUsage(
+        std::string indent, Verbosity verbosity = Verbosity::VERBOSE) const;
+    void printApplicableActionCacheUsage(
+        std::string indent, Verbosity verbosity = Verbosity::VERBOSE) const;
+
 private:
     // Methods for reward lock detection
     bool checkDeadEnd(KleeneState const& state) const;
@@ -508,7 +497,7 @@ protected:
     // it is not. Otherwise, the action with index i is unreasonable as the
     // action with index res[i] leads to the same distribution over successor
     // states (this is only checked if pruneUnreasonableActions is true).
-    std::vector<int> getApplicableActions(State const& state) const {
+    std::vector<int> getApplicableActions(State const& state) const override {
         std::vector<int> res(numberOfActions, 0);
 
         ActionHashMap::iterator it = applicableActionsCache.find(state);
@@ -560,6 +549,11 @@ protected:
         }
         return res;
     }
+
+    void printStateValueCacheUsage(
+        std::string indent, Verbosity verbosity = Verbosity::VERBOSE) const;
+    void printApplicableActionCacheUsage(
+        std::string indent, Verbosity verbosity = Verbosity::VERBOSE) const;
 };
 
 #endif

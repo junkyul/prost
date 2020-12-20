@@ -41,7 +41,7 @@ public:
     std::string name;
     std::vector<std::string> values;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 
 protected:
     StateFluent(int _index, std::string _name, std::vector<std::string> _values)
@@ -55,11 +55,11 @@ public:
         : StateFluent(_index, _name, _values) {}
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 };
 
 class ProbabilisticStateFluent : public StateFluent {
@@ -69,31 +69,32 @@ public:
         : StateFluent(_index, _name, _values) {}
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 };
 
 class ActionFluent : public LogicalExpression {
 public:
-    ActionFluent(int _index, std::string _name,
+    ActionFluent(int _index, std::string _name, bool _isFDR,
                  std::vector<std::string> _values)
-        : index(_index), name(_name), values(_values) {}
+        : index(_index), name(_name), isFDR(_isFDR), values(_values) {}
 
     int index;
     std::string name;
+    bool isFDR;
     std::vector<std::string> values;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class NumericConstant : public LogicalExpression {
@@ -103,13 +104,13 @@ public:
     double value;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 /*****************************************************************
@@ -123,13 +124,13 @@ public:
     std::vector<LogicalExpression*> exprs;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Disjunction : public LogicalExpression {
@@ -139,13 +140,13 @@ public:
     std::vector<LogicalExpression*> exprs;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class EqualsExpression : public LogicalExpression {
@@ -155,13 +156,13 @@ public:
     std::vector<LogicalExpression*> exprs;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class GreaterExpression : public LogicalExpression {
@@ -172,13 +173,13 @@ public:
     std::vector<LogicalExpression*> exprs;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class LowerExpression : public LogicalExpression {
@@ -188,13 +189,13 @@ public:
     std::vector<LogicalExpression*> exprs;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class GreaterEqualsExpression : public LogicalExpression {
@@ -205,13 +206,13 @@ public:
     std::vector<LogicalExpression*> exprs;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class LowerEqualsExpression : public LogicalExpression {
@@ -222,13 +223,13 @@ public:
     std::vector<LogicalExpression*> exprs;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Addition : public LogicalExpression {
@@ -238,13 +239,13 @@ public:
     std::vector<LogicalExpression*> exprs;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Subtraction : public LogicalExpression {
@@ -254,13 +255,13 @@ public:
     std::vector<LogicalExpression*> exprs;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Multiplication : public LogicalExpression {
@@ -270,13 +271,13 @@ public:
     std::vector<LogicalExpression*> exprs;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Division : public LogicalExpression {
@@ -286,13 +287,13 @@ public:
     std::vector<LogicalExpression*> exprs;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 /*****************************************************************
@@ -306,13 +307,13 @@ public:
     LogicalExpression* expr;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class ExponentialFunction : public LogicalExpression {
@@ -322,13 +323,13 @@ public:
     LogicalExpression* expr;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 /*****************************************************************
@@ -342,13 +343,13 @@ public:
     LogicalExpression* expr;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class DiscreteDistribution : public LogicalExpression {
@@ -361,13 +362,13 @@ public:
     std::vector<LogicalExpression*> probabilities;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 /*****************************************************************
@@ -384,13 +385,13 @@ public:
     std::vector<LogicalExpression*> effects;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& actions) const;
+                  ActionState const& actions) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& actions) const;
+                      ActionState const& actions) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& actions) const;
+                          ActionState const& actions) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 #endif

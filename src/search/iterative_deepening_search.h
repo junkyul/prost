@@ -1,7 +1,7 @@
 #ifndef ITERATIVE_DEEPENING_SEARCH_H
 #define ITERATIVE_DEEPENING_SEARCH_H
 
-// Implements an iterative deepending search engine. This was used as
+// Implements an iterative deepening search engine. This was used as
 // initialization for UCT in IPC 2011 (and IPC 2014) and is described in the
 // paper by Keller and Eyerich (ICAPS 2012).
 
@@ -13,6 +13,7 @@
 #include <unordered_map>
 
 class DepthFirstSearch;
+class MinimalLookaheadSearch;
 
 class IDS : public DeterministicSearchEngine {
 public:
@@ -24,9 +25,16 @@ public:
     // This is called when caching is disabled because memory becomes sparse.
     void disableCaching() override;
 
-    // This is called initially to learn parameter values from a random training
-    // set.
-    void learn() override;
+    // Notify the search engine that the session starts
+    void initSession() override;
+
+    // Notify the search engine that a new round starts or ends
+    void initRound() override;
+    void finishRound() override;
+
+    // Notify the search engine that a new step starts or ends
+    void initStep(State const& current) override;
+    void finishStep() override;
 
     // Start the search engine to estimate the Q-value of a single action
     void estimateQValue(State const& state, int actionIndex,
@@ -50,18 +58,23 @@ public:
         terminateWithReasonableAction = newValue;
     }
 
-    // Reset statistic variables
-    void resetStats();
+    void setIsLearning(bool newValue) {
+        isLearning = newValue;
+    }
+
+    bool usesBDDs() const override {
+        return false;
+    }
 
     // Print
-    void printStats(std::ostream& out, bool const& printRoundStats,
-                    std::string indent = "") const;
+    void printConfig(std::string indent) const override;
+    void printRoundStatistics(std::string indent) const override;
+    void printStepStatistics(std::string indent) const override;
 
     // Caching
-    typedef std::unordered_map<State, std::vector<double>,
-                               State::HashWithoutRemSteps,
-                               State::EqualWithoutRemSteps>
-        HashMap;
+    using HashMap = std::unordered_map<State, std::vector<double>,
+                                       State::HashWithoutRemSteps,
+                                       State::EqualWithoutRemSteps>;
     static HashMap rewardCache;
 
 protected:
@@ -71,8 +84,17 @@ protected:
                         std::vector<double>& qValues);
     inline bool moreIterations(int const& stepsToGo);
 
+    void createMinimalLookaheadSearch();
+
+    void printRewardCacheUsage(
+        std::string indent, Verbosity verbosity = Verbosity::VERBOSE) const;
+
     // The depth first search engine
     DepthFirstSearch* dfs;
+
+    // If maxSearchDepth is no larger than 1, a MinimalLookahead search engine
+    // is faster and better informed, so this one is used
+    MinimalLookaheadSearch* mlh;
 
     // Learning related variables
     bool isLearning;
@@ -91,10 +113,15 @@ protected:
     double strictTerminationTimeout;
     bool terminateWithReasonableAction;
 
-    // Statistics
-    int accumulatedSearchDepth;
-    int cacheHits;
-    int numberOfRuns;
+    // Per step statistics
+    int accumulatedSearchDepthInCurrentStep;
+    int numberOfRunsInCurrentStep;
+    int cacheHitsInCurrentStep;
+
+    // Per round statistics
+    double avgSearchDepthInFirstRelevantState;
+    long accumulatedSearchDepthInCurrentRound;
+    int numberOfRunsInCurrentRound;
 };
 
 #endif

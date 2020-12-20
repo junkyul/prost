@@ -53,12 +53,7 @@ public:
         }
     }
 
-    State(State const& other)
-        : deterministicStateFluents(other.deterministicStateFluents),
-          probabilisticStateFluents(other.probabilisticStateFluents),
-          remSteps(other.remSteps),
-          stateFluentHashKeys(other.stateFluentHashKeys),
-          hashKey(other.hashKey) {}
+    State(State const& other) = default;
 
     virtual void setTo(State const& other) {
         for (unsigned int i = 0; i < numberOfDeterministicStateFluents; ++i) {
@@ -340,8 +335,8 @@ public:
         }
     };
 
-    void printCompact(std::ostream& out) const;
-    void print(std::ostream& out) const;
+    virtual std::string toCompactString() const;
+    virtual std::string toString() const;
 
     // The number of deterministic and probabilistic state fluents
     static int numberOfDeterministicStateFluents;
@@ -383,28 +378,30 @@ private:
 
 struct ActionState {
     ActionState(int _index, std::vector<int> _state,
-                std::vector<ActionFluent*> _scheduledActionFluents,
                 std::vector<DeterministicEvaluatable*> _actionPreconditions)
         : index(_index),
           state(_state),
-          scheduledActionFluents(_scheduledActionFluents),
-          actionPreconditions(_actionPreconditions) {}
-
-    int& operator[](int const& index) {
-        return state[index];
+          actionPreconditions(_actionPreconditions) {
+        isNoop = getScheduledActionFluentNames().empty();
     }
 
-    const int& operator[](int const& index) const {
-        return state[index];
+    int& operator[](int const& i) {
+        return state[i];
     }
 
-    void printCompact(std::ostream& out) const;
-    void print(std::ostream& out) const;
+    const int& operator[](int const& i) const {
+        return state[i];
+    }
+
+    std::vector<std::string> getScheduledActionFluentNames() const;
+
+    std::string toString() const;
+    std::string toCompactString() const;
 
     int index;
     std::vector<int> state;
-    std::vector<ActionFluent*> scheduledActionFluents;
     std::vector<DeterministicEvaluatable*> actionPreconditions;
+    bool isNoop;
 };
 
 /*****************************************************************
@@ -433,7 +430,7 @@ public:
         return probabilisticStateFluentsAsPD[index];
     }
 
-    void reset(int _remSteps) {
+    void reset(int _remSteps) override {
         State::reset(_remSteps);
 
         for (unsigned int i = 0; i < numberOfProbabilisticStateFluents; ++i) {
@@ -488,8 +485,7 @@ public:
         }
     };
 
-    void printPDState(std::ostream& out) const;
-    void printPDStateCompact(std::ostream& out) const;
+    std::string toCompactString() const;
 
 protected:
     std::vector<DiscretePD> probabilisticStateFluentsAsPD;
@@ -611,7 +607,7 @@ public:
         return KleeneState(*this) |= other;
     }
 
-    void print(std::ostream& out) const;
+    std::string toString() const;
 
     // The number of state fluents
     static int stateSize;

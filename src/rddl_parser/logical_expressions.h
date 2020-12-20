@@ -1,28 +1,37 @@
-#ifndef LOGICAL_EXPRESSIONS_H
-#define LOGICAL_EXPRESSIONS_H
+#ifndef PARSER_LOGICAL_EXPRESSIONS_H
+#define PARSER_LOGICAL_EXPRESSIONS_H
 
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
 
-class Instantiator;
-class RDDLTask;
-class StateFluent;
+namespace z3 {
+class expr;
+}
+
+namespace prost::parser {
 class ActionFluent;
-class NumericConstant;
-class Object;
-class State;
-class KleeneState;
 class ActionState;
 class DiscretePD;
+class Instantiator;
+class KleeneState;
+class LogicalExpression;
+class NumericConstant;
+class Object;
 class ParametrizedVariable;
+struct RDDLTask;
+class RDDLTaskCSP;
+class State;
+class StateFluent;
 
-using Instantiations = std::map<std::string, Object*>;
-using Simplifications = std::map<ParametrizedVariable*, double>;
-using StateFluentSet = std::set<StateFluent*>;
 using ActionFluentSet = std::set<ActionFluent*>;
 using Domains = std::vector<std::set<double>>;
+using Instantiations = std::map<std::string, Object*>;
+using Simplifications =
+    std::map<ParametrizedVariable const*, LogicalExpression*>;
+using StateFluentSet = std::set<StateFluent*>;
+using Z3Expressions = std::vector<::z3::expr>;
 
 class LogicalExpression {
 public:
@@ -34,15 +43,10 @@ public:
                                            Instantiations& replace);
     virtual LogicalExpression* simplify(Simplifications& replace);
 
-    virtual LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
-
     virtual void collectInitialInfo(bool& isProbabilistic,
                                     bool& containsArithmeticFunction,
                                     StateFluentSet& dependentStateFluents,
                                     ActionFluentSet& dependentActionFluents);
-    virtual void classifyActionFluents(ActionFluentSet& positive,
-                                       ActionFluentSet& negative);
     virtual void calculateDomain(Domains const& domains,
                                  ActionState const& action,
                                  std::set<double>& res);
@@ -58,10 +62,7 @@ public:
                                   KleeneState const& current,
                                   ActionState const& action) const;
 
-    void determineBounds(std::vector<ActionState> const& actionStates,
-                         double& minRes, double& maxRes) const;
-    virtual void determineBounds(ActionState const& action, double& minRes,
-                                 double& maxRes) const;
+    virtual ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const;
 
     virtual void print(std::ostream& out) const;
 };
@@ -103,25 +104,29 @@ public:
     Type* type;
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Object : public Parameter {
 public:
     Object(std::string _name, Type* _type);
+    Object(std::string _name, Type* _type, double _value)
+        : Parameter(_name, _type), types({_type}), value(_value) {}
     ~Object() {}
 
     std::vector<Type*> types;
     double value;
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class ParametrizedVariable : public LogicalExpression {
@@ -158,14 +163,12 @@ public:
     double initialValue;
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
-
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 /*****************************************************************
@@ -175,8 +178,11 @@ public:
 class StateFluent : public ParametrizedVariable {
 public:
     StateFluent(ParametrizedVariable const& source,
-                std::vector<Parameter*> _params, double _initialValue)
-        : ParametrizedVariable(source, _params, _initialValue), index(-1) {}
+                std::vector<Parameter*> _params, double _initialValue,
+                int _index = -1)
+        : ParametrizedVariable(source, _params, _initialValue), index(_index) {
+        domainSize = valueType->objects.size();
+    }
     StateFluent(ParametrizedVariable const& source,
                 std::vector<Parameter*> _params)
         : ParametrizedVariable(source, _params), index(-1) {}
@@ -184,74 +190,70 @@ public:
     int index;
     int domainSize;
 
-    LogicalExpression* simplify(Simplifications& replace);
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
-
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class ActionFluent : public ParametrizedVariable {
 public:
     ActionFluent(ParametrizedVariable const& source,
-                 std::vector<Parameter*> _params)
-        : ParametrizedVariable(source, _params, 0.0), index(-1) {}
+                 std::vector<Parameter*> _params, int _index = -1);
+    ActionFluent(std::string name, Type* _valueType, int _index = -1);
 
     int index;
+    bool isFDR;
 
-    LogicalExpression* simplify(Simplifications& replace);
+    size_t domainSize() const {
+        return valueType->objects.size();
+    }
+
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 
-    // This is used to sort ActionFluents by their name to ensure deterministic
-    // behaviour
     struct ActionFluentSort {
-        bool operator()(ActionFluent* const& lhs,
-                        ActionFluent* const& rhs) const {
-            return lhs->fullName < rhs->fullName;
+        bool operator()(ActionFluent const* lhs,
+                        ActionFluent const* rhs) const {
+            return lhs->index < rhs->index;
         }
     };
 };
@@ -273,37 +275,32 @@ public:
     double value;
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
-
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
 
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 /*****************************************************************
@@ -319,7 +316,7 @@ public:
     std::vector<Parameter*> params;
     std::vector<Type*> types;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Quantifier : public LogicalExpression {
@@ -341,9 +338,9 @@ public:
         : Quantifier(_paramList, _expr) {}
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
+                                         Instantiator* inst) override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Product : public Quantifier {
@@ -352,9 +349,9 @@ public:
         : Quantifier(_paramList, _expr) {}
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
+                                         Instantiator* inst) override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class UniversalQuantification : public Quantifier {
@@ -363,9 +360,9 @@ public:
         : Quantifier(_paramList, _expr) {}
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
+                                         Instantiator* inst) override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class ExistentialQuantification : public Quantifier {
@@ -375,9 +372,9 @@ public:
         : Quantifier(_paramList, _expr) {}
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
+                                         Instantiator* inst) override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 /*****************************************************************
@@ -390,79 +387,81 @@ public:
 
     Connective(std::vector<LogicalExpression*>& _exprs) : exprs(_exprs) {}
 
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
-    void print(std::ostream& out) const;
+    virtual Connective* create(std::vector<LogicalExpression*> _exprs) = 0;
+
+    void print(std::ostream& out) const override;
 };
 
 class Conjunction : public Connective {
 public:
     Conjunction(std::vector<LogicalExpression*>& _exprs) : Connective(_exprs) {}
 
-    LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+    Conjunction* create(std::vector<LogicalExpression*> _exprs) override {
+        return new Conjunction(_exprs);
+    }
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+    LogicalExpression* replaceQuantifier(Instantiations& replace,
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Disjunction : public Connective {
 public:
     Disjunction(std::vector<LogicalExpression*>& _exprs) : Connective(_exprs) {}
 
-    LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+    Disjunction* create(std::vector<LogicalExpression*> _exprs) override {
+        return new Disjunction(_exprs);
+    }
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+    LogicalExpression* replaceQuantifier(Instantiations& replace,
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class EqualsExpression : public Connective {
@@ -470,37 +469,36 @@ public:
     EqualsExpression(std::vector<LogicalExpression*>& _exprs)
         : Connective(_exprs) {}
 
-    LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+    EqualsExpression* create(std::vector<LogicalExpression*> _exprs) override {
+        return new EqualsExpression(_exprs);
+    }
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+    LogicalExpression* replaceQuantifier(Instantiations& replace,
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class GreaterExpression : public Connective {
@@ -508,37 +506,36 @@ public:
     GreaterExpression(std::vector<LogicalExpression*>& _exprs)
         : Connective(_exprs) {}
 
-    LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+    GreaterExpression* create(std::vector<LogicalExpression*> _exprs) override {
+        return new GreaterExpression(_exprs);
+    }
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+    LogicalExpression* replaceQuantifier(Instantiations& replace,
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class LowerExpression : public Connective {
@@ -546,37 +543,36 @@ public:
     LowerExpression(std::vector<LogicalExpression*>& _exprs)
         : Connective(_exprs) {}
 
-    LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+    LowerExpression* create(std::vector<LogicalExpression*> _exprs) override {
+        return new LowerExpression(_exprs);
+    }
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+    LogicalExpression* replaceQuantifier(Instantiations& replace,
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class GreaterEqualsExpression : public Connective {
@@ -584,37 +580,37 @@ public:
     GreaterEqualsExpression(std::vector<LogicalExpression*>& _exprs)
         : Connective(_exprs) {}
 
-    LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+    GreaterEqualsExpression* create(
+        std::vector<LogicalExpression*> _exprs) override {
+        return new GreaterEqualsExpression(_exprs);
+    }
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+    LogicalExpression* replaceQuantifier(Instantiations& replace,
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class LowerEqualsExpression : public Connective {
@@ -622,109 +618,109 @@ public:
     LowerEqualsExpression(std::vector<LogicalExpression*>& _exprs)
         : Connective(_exprs) {}
 
-    LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+    LowerEqualsExpression* create(
+        std::vector<LogicalExpression*> _exprs) override {
+        return new LowerEqualsExpression(_exprs);
+    }
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+    LogicalExpression* replaceQuantifier(Instantiations& replace,
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Addition : public Connective {
 public:
     Addition(std::vector<LogicalExpression*>& _exprs) : Connective(_exprs) {}
 
-    LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+    Addition* create(std::vector<LogicalExpression*> _exprs) override {
+        return new Addition(_exprs);
+    }
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+    LogicalExpression* replaceQuantifier(Instantiations& replace,
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Subtraction : public Connective {
 public:
     Subtraction(std::vector<LogicalExpression*>& _exprs) : Connective(_exprs) {}
 
-    LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+    Subtraction* create(std::vector<LogicalExpression*> _exprs) override {
+        return new Subtraction(_exprs);
+    }
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+    LogicalExpression* replaceQuantifier(Instantiations& replace,
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Multiplication : public Connective {
@@ -732,74 +728,72 @@ public:
     Multiplication(std::vector<LogicalExpression*>& _exprs)
         : Connective(_exprs) {}
 
-    LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+    Multiplication* create(std::vector<LogicalExpression*> _exprs) override {
+        return new Multiplication(_exprs);
+    }
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+    LogicalExpression* replaceQuantifier(Instantiations& replace,
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class Division : public Connective {
 public:
     Division(std::vector<LogicalExpression*>& _exprs) : Connective(_exprs) {}
 
-    LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+    Division* create(std::vector<LogicalExpression*> _exprs) override {
+        return new Division(_exprs);
+    }
 
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+    LogicalExpression* replaceQuantifier(Instantiations& replace,
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 /*****************************************************************
@@ -813,36 +807,31 @@ public:
     Negation(LogicalExpression* _expr) : expr(_expr) {}
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
-
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class ExponentialFunction : public LogicalExpression {
@@ -852,36 +841,29 @@ public:
     LogicalExpression* expr;
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
-
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
-
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 /*****************************************************************
@@ -894,13 +876,14 @@ public:
         : LogicalExpression(), expr(_expr) {}
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     LogicalExpression* expr;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class BernoulliDistribution : public LogicalExpression {
@@ -909,35 +892,30 @@ public:
         : LogicalExpression(), expr(_expr) {}
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
-
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
 
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
-
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 
     LogicalExpression* expr;
 };
@@ -953,34 +931,29 @@ public:
         : LogicalExpression(), values(_values), probabilities(_probabilities) {}
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
-
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
-
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 /*****************************************************************
@@ -1001,36 +974,29 @@ public:
           valueIfFalse(_valueIfFalse) {}
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
-
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
-
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
 };
 
 class MultiConditionChecker : public LogicalExpression {
@@ -1043,36 +1009,38 @@ public:
         : conditions(_conditions), effects(_effects) {}
 
     LogicalExpression* replaceQuantifier(Instantiations& replace,
-                                         Instantiator* inst);
-    LogicalExpression* instantiate(RDDLTask* task, Instantiations& replace);
-    LogicalExpression* simplify(Simplifications& replace);
-
-    LogicalExpression* determinizeMostLikely(
-        std::vector<ActionState> const& actionStates);
+                                         Instantiator* inst) override;
+    LogicalExpression* instantiate(RDDLTask* task,
+                                   Instantiations& replace) override;
+    LogicalExpression* simplify(Simplifications& replace) override;
 
     void collectInitialInfo(bool& isProbabilistic,
                             bool& containsArithmeticFunction,
                             StateFluentSet& dependentStateFluents,
-                            ActionFluentSet& dependentActionFluents);
-    void classifyActionFluents(ActionFluentSet& positive,
-                               ActionFluentSet& negative);
+                            ActionFluentSet& dependentActionFluents) override;
     void calculateDomain(Domains const& domains, ActionState const& action,
-                         std::set<double>& res);
+                         std::set<double>& res) override;
     void calculateDomainAsInterval(Domains const& domains,
                                    ActionState const& action, double& minRes,
-                                   double& maxRes);
+                                   double& maxRes) override;
 
     void evaluate(double& res, State const& current,
-                  ActionState const& action) const;
+                  ActionState const& action) const override;
     void evaluateToPD(DiscretePD& res, State const& current,
-                      ActionState const& action) const;
+                      ActionState const& action) const override;
     void evaluateToKleene(std::set<double>& res, KleeneState const& current,
-                          ActionState const& action) const;
+                          ActionState const& action) const override;
 
-    void determineBounds(ActionState const& action, double& minRes,
-                         double& maxRes) const override;
+    ::z3::expr toZ3Formula(RDDLTaskCSP& csp, int actionIndex) const override;
 
-    void print(std::ostream& out) const;
+    void print(std::ostream& out) const override;
+
+private:
+    // To encode a MultiConditionChecker as a CSP formula, we nest if-then-else
+    // (z3::ite) expressions, which are built by recursively calling this
+    ::z3::expr buildZ3Formula(RDDLTaskCSP& csp, int actionIndex,
+                              int index) const;
 };
+} // namespace prost::parser
 
-#endif
+#endif // PARSER_LOGICAL_EXPRESSIONS_H

@@ -4,11 +4,7 @@
 *.q
 *.log
 *.err
-
+*.swp
 builds/
-
-testbed/rddlsim
-testbed/results
 testbed/benchmarks/test
-
-scripts/tex
+testbed/experiments/issue-*/data/
